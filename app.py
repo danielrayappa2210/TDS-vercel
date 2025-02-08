@@ -1,45 +1,37 @@
 import os
-import requests
+import sqlite3
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-KV_URL = os.environ.get("KV_URL")  # Get the KV URL from environment variables
-
-if not KV_URL:  # Handle the case where KV_URL is not set
-    print("Error: KV_URL environment variable is not set!")
-    exit(1)  # Exit the application if KV_URL is not set
+DATABASE_FILE = "students.db"
 
 @app.route('/api')
 def api():
     names = request.args.getlist('name')
-    results = {}
+    marks = []  # Initialize an empty list to store the marks
 
     if not names:
         return jsonify({"error": "No names provided"}), 400
 
-    for name in names:
-        try:
-            response = requests.get(f"{KV_URL}/{name}")  # Make a GET request to KV
-            response.raise_for_status()  # Check for HTTP errors (4xx or 5xx)
-            data = response.json()
-            mark = data.get("value")  # Extract the value from the JSON response
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
 
-            if mark:
-                try:
-                    mark = int(mark)
-                    results[name] = mark
-                except ValueError:
-                    results[name] = f"Invalid mark for {name} (not an integer)"
+        for name in names:
+            cursor.execute("SELECT mark FROM students WHERE name=?", (name,))
+            result = cursor.fetchone()
+            if result:
+                marks.append(result[0])  # Append the mark to the list
             else:
-                results[name] = "Name not found"
+                marks.append("Name not found")  # Append "Name not found" to the list
+        conn.close()
+    except sqlite3.Error as e:
+        return jsonify({"error": f"Database error: {e}"}), 500
 
-        except requests.exceptions.RequestException as e:
-            results[name] = f"Error retrieving mark for {name}: {e}"
-
-    return jsonify(results)
+    return jsonify({"marks": marks})  # Return the list of marks in the "marks" key
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
